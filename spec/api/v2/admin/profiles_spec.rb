@@ -52,6 +52,35 @@ describe API::V2::Admin::Profiles do
     end
   end
 
+  describe 'POST /api/v2/admin/profiles' do
+    let(:user) { create :user }
+    let!(:request_params) do
+      {
+        last_name: Faker::Name.last_name,
+        first_name: Faker::Name.first_name,
+        dob: Faker::Date.birthday,
+        country: Faker::Address.country_code_long,
+        city: Faker::Address.city,
+        address: Faker::Address.street_address,
+        postcode: Faker::Address.zip_code
+      }
+    end
+
+    context 'successful response' do
+      it 'works correctly' do
+        post '/api/v2/admin/profiles', params: request_params.merge(uid: user.uid), headers: auth_header
+
+        expect(response.status).to eq(201)
+        profile = Profile.find_by(request_params)
+        expect(profile).to be
+        expect(json_body[:state]).to eq('submitted')
+        expect(profile.state).to eq('submitted')
+        expect(profile.author).to eq(test_user.uid)
+        expect(profile.metadata).to be_blank
+      end
+    end
+  end
+
   describe 'PUT /api/v2/admin/profiles' do
     let!(:request_params) do
       {
@@ -103,7 +132,10 @@ describe API::V2::Admin::Profiles do
     context 'unsuccessful response' do
       let!(:superadmin_with_profile) do
         @user = create :user, role: 'superadmin'
-        create(:profile, user_id: @user.id, state: 'submitted')
+        create(:profile, user_id: @user.id, state: 'submitted', author: test_user.uid)
+
+        @user_admin = create :user, role: 'admin'
+        create(:profile, user_id: @user_admin.id, state: 'submitted', author: test_user.uid)
       end
 
       it 'return error when non-superadmin user updates superadmin' do
@@ -112,6 +144,14 @@ describe API::V2::Admin::Profiles do
         result = JSON.parse(response.body)
         expect(response.code).to eq '422'
         expect(result['errors']).to eq(['admin.profiles.superadmin_change'])
+      end
+
+      it 'return error when author is trying to approve himself' do
+        put '/api/v2/admin/profiles', params: request_params.merge(uid: @user_admin.uid), headers: auth_header
+
+        result = JSON.parse(response.body)
+        expect(response.code).to eq '422'
+        expect(result['errors']).to eq(['admin.profiles.second_admin_approval'])
       end
 
       it 'renders an error when profile doesnt exist' do
